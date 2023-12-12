@@ -17,6 +17,8 @@ The sequencing was performed with Illumina short reads platform (PE 150 bp). Ple
       - [S.pimpinellifolium sample quantification](#spimpinellifolium-sample-quantification)
       - [S.lycopersicum sample quantification](#slycopersicum-sample-quantification)
   - [Identify orthologs gene pairs between cultivated and wild species of tomato using liftoff](#identify-orthologs-gene-pairs-between-cultivated-and-wild-species-of-tomato-using-liftoff)
+  - [Extract the overlapped genes from two genomes](#extract-the-overlapped-genes-from-two-genomes)
+  - [Generate the final report and statistical inforamtion of orthologous genes](#generate-the-final-report-and-statistical-inforamtion-of-orthologous-genes)
 
 
 
@@ -71,7 +73,7 @@ output_dir="/home/liangyu/1_Project/8_Sorghum/1_Salmon"
 | -fr-secondstrand | -l ISF | -l SF|
 
 
-**Salmong results**
+**Salmon results**
 ```
 {
     "read_files": "[ /mnt/Leonof/1_Tomato-SaltStress/01_data/01_trim/A1_forward_paired.fq.gz, /mnt/Leonof/1_Tomato-SaltStress/01_data/01_trim/A1_reverse_paired.fq.gz]",
@@ -148,7 +150,7 @@ gff_dir="/mnt/Leonof/1_Tomato-SaltStress/02_Genome"
 BAM_dir="/mnt/Leonof/1_Tomato-SaltStress/03_Mapping/01_Wild" 
 output_dir="/mnt/Leonof/1_Tomato-SaltStress/04_FeatureCounts/01_Wild"
 
-###Perform featureCounts for protein-coding genes
+###Perform featureCounts for protein-coding genes (NC-publsihed version)
 featureCounts -T 20 -p \
   -a $gff_dir/LA2093_v1.5.gff \
   -o $output_dir/Spimpinellifolium_gene.count \
@@ -156,13 +158,35 @@ featureCounts -T 20 -p \
   -g ID \
   -s 0 \
   $BAM_dir/*.bam >  S.pimpinellifolium_transcripts_count.log
+
+###Perform featureCounts for protein-coding genes (Fei-lab improved version)
+gff_dir="/mnt/Leonof/1_Tomato-SaltStress/02_Genome"
+BAM_dir="/mnt/Leonof/1_Tomato-SaltStress/03_Mapping/01_Wild" 
+output_dir="/mnt/Leonof/1_Tomato-SaltStress/04_FeatureCounts/01_Wild"
+
+###Perform featureCounts for protein-coding genes
+featureCounts -T 20 -p \
+  -a $gff_dir/LA2093-rename.gff3 \
+  -o $output_dir/Spimpinellifolium_gene.count \
+  -t gene \
+  -g ID \
+  -s 0 \
+  $BAM_dir/*.bam >  S.pimpinellifolium_transcripts_count.log
+
 ```
 **Meta-information summary**
 ```
+### NC published version
 ||    Features : 35761                                                        ||
 ||    Meta-features : 35761                                                   ||
 ||    Chromosomes/contigs : 13  
+
+### Fei lab improved version
+||    Features : 36873                                                        ||
+||    Meta-features : 36873                                                   ||
+||    Chromosomes/contigs : 13     
 ```
+
 #### S.lycopersicum sample quantification
 ```bash
 gff_dir="/mnt/Leonof/1_Tomato-SaltStress/02_Genome"
@@ -184,3 +208,116 @@ featureCounts -T 20 -p \
 ||    Meta-features : 36648                                                   ||
 ||    Chromosomes/contigs : 13 
 ```
+
+## Identify orthologs gene pairs between cultivated and wild species of tomato using liftoff
+See [**Liftoff**](https://github.com/agshumate/Liftoff) page for usage details
+
+Liftoff generate fewer genes in soybean samples
+```
+grep "gene" Gmax_508_Wm82.a4.v1.gene_exons.gff3 | wc -l   52872
+grep "gene" Gmax_genes_liftoff.gff3_polished | wc -l   52732
+
+grep "gene" Slyoc_liftoff.gff3_polished | wc -l 38142
+
+```
+
+```bash
+lift_dir="/mnt/Leonof/1_Tomato-SaltStress/05_Liftoff"
+annotation_dir="/mnt/Leonof/1_Tomato-SaltStress/02_Genome"
+
+# lift S.lycopersicum genes from reference S.lycopersicum to target S.pimpinellifolium
+liftoff -polish -copies -sc 0.95 -exclude_partial \
+  -s 0.90 -a 0.80 -p 40 \
+  -dir /mnt/Leonof/1_Tomato-SaltStress/05_Liftoff/ \
+  -o Sslyc_liftoff.gff3 \
+  -g /mnt/Leonof/1_Tomato-SaltStress/02_Genome/Slycopersicum_796_ITAG5.0.gene_exons.gff3 \
+  /mnt/Leonof/1_Tomato-SaltStress/02_Genome/LA2093_genome_v1.5.fa \
+  /mnt/Leonof/1_Tomato-SaltStress/02_Genome/Slycopersicum_796_ITAG5.0.fa
+
+#clean the liftoff gff file
+
+cd $lift_dir/
+
+ awk '$3=="gene" {print}' Sslyc_liftoff.gff3_polished | \
+ sed 's/;/\t/g' | awk -F'\t' 'BEGIN {OFS="\t"} {cols=""; for (i=1; i<=NF; i++) {if ($i ~ /coverage/ || $i ~ /sequence/ || $i ~ /valid_ORFs/) {cols = cols (cols=="" ? "" : ",") $i}}; print $9, $1, $4, $5, $7, cols}' | \
+ sed 's/,/\t/g' | sed 's/sequence_ID=//g' | sed 's/ID=//g' | sed 's/coverage=//g' \
+  > Sslyc_liftoff.gff3_polished.clean
+
+# format liftoff-polished  for bedtools intersect
+ awk '{print $2,$3,$4,$1,$5,$6,$7,$8}' Sslyc_liftoff.gff3_polished.clean | sed 's/ /\t/g' >  Sslyc_liftoff.gff3_polished.clean_1
+
+ #format S.pimp gff format (extract the genes only)
+ grep 'gene' /mnt/Leonof/1_Tomato-SaltStress/02_Genome/LA2093-rename.gff3 | grep -v "mRNA" | sed 's/;.*//g' | awk '{print $9,$1,$4,$5,$7}' | sed 's/ID=//g' | sed 's/ /\t/g' > Spimp_rename.gff.clean
+
+ # format S.pimp gff  for bedtools intersect
+ awk '{print $2,$3,$4,$1,$5}' Spimp_rename.gff.clean | sed 's/ /\t/g' > Spimp_rename.gff.clean_1
+
+ ```
+ ## Extract the overlapped genes from two genomes
+ ```bash
+ 
+ #identify the overlapped region between lifted region and Spimp gene annoatation
+ bedtools intersect -wo -a Spimp_rename.gff.clean_1 \
+          -b  Sslyc_liftoff.gff3_polished.clean_1 |\
+          sed '1i\Chr Start End S.pimp Strand Chr Start End S.slyc_liftoff Strand Coverage Identity ValidORFs OverlapSize' | \
+          awk '{print $4,$1,$2,$3,$5,$9,$6,$7,$8,$10,$11,$12,$13,$14}' | sed 's/ /\t/g' > Spimp_Slyco_genes
+
+# Remove those genes located on different chromosomes
+# get S.slyc gene info from S.slyc gff file 
+grep -v "#" /mnt/Leonof/1_Tomato-SaltStress/02_Genome/Slycopersicum_796_ITAG5.0.gene_exons.gff3 | sed 's/;/ /g' | \
+        awk ' $3=="gene" {print $9,$1,$4,$5,$7}' | sed 's/ /\t/g' | \
+sed 's/ID=//g' > Slyco_genes
+
+# Extract the corresponding S.slyc gene infos based on the order of liftoff
+for i in $(cat Spimp_Slyco_genes |cut -f6 | cut -f1 -d "_" ); 
+do 
+  grep $i  Slyco_genes ; 
+done | \
+sed '1i\Slyco Chr Start End Strand' | sed 's/ /\t/g' >  Slyco_genes.clean
+
+cat Slyco_genes.clean | uniq  > Slyco_genes.final
+# combine final outpot 
+paste Spimp_Slyco_genes Slyco_genes.clean > Spimp_Slyco_genes_ortholog.txt  
+
+```
+## Generate the final report and statistical inforamtion of orthologous genes
+```R
+setwd('/mnt/Leonof/Xiaodan/soybeans_project/2_analyses/1_liftoff')
+ortholog_info <- read.table('Gsoja_Gmax_ortholog.txt', header = T, )
+# Count the occurrences of each value
+counts <- table(ortholog_info$Gsoja)
+counts_column <- counts[ortholog_info$Gsoja]
+ortholog <- data.frame(ortholog_info, counts_column)
+ortholog$Gsoja_size <- ortholog$End - ortholog$Start
+ortholog$Gmax_size <- ortholog$End.2 - ortholog$Start.2
+ortholog <-  ortholog[ortholog$Chr == ortholog$Chr.2, ]
+
+pairwise_ortholog <- ortholog[ortholog$Freq == 1, ]
+ortholog2 <- subset(ortholog, ortholog$Freq > 1)
+# Find the row with the highest value in column2 for each unique value in column1
+library(dplyr)
+result <- ortholog2 %>%
+  arrange(desc(ortholog2$Identity)) %>%
+  group_by(ortholog2$Gsoja) %>%
+  filter(row_number() == 1)
+result <- result[,-24]
+ortholog3 <- rbind(pairwise_ortholog, result)
+
+ortholog4 <- ortholog3 %>%
+  group_by(ortholog3$Gmax) %>%
+  mutate(counts = n())
+
+pairwise_ortholog_1 <- ortholog4[ortholog4$counts == 1, ]
+orthologGreat1 <- subset(ortholog4, ortholog4$counts > 1)
+result <- orthologGreat1 %>%
+  arrange(desc(orthologGreat1$Identity)) %>%
+  group_by(orthologGreat1$Gmax) %>%
+  filter(row_number() == 1)
+result <- result[,-24]
+
+ortholog_final <- rbind(pairwise_ortholog_1, result)
+write.table(ortholog_final, file = 'Gsoja_Gmax_ortholog.final.txt', quote = F, col.names = T, row.names = F, sep = '\t')
+
+```
+
+
